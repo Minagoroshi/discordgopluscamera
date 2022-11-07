@@ -39,6 +39,7 @@ type VoiceConnection struct {
 	ChannelID    string
 	deaf         bool
 	mute         bool
+	camera       bool
 	speaking     bool
 	reconnecting bool // If true, voice connection is trying to reconnect
 
@@ -76,7 +77,8 @@ type VoiceSpeakingUpdateHandler func(vc *VoiceConnection, vs *VoiceSpeakingUpdat
 // Speaking sends a speaking notification to Discord over the voice websocket.
 // This must be sent as true prior to sending audio and should be set to false
 // once finished sending audio.
-//  b  : Send true if speaking, false if not.
+//
+//	b  : Send true if speaking, false if not.
 func (v *VoiceConnection) Speaking(b bool) (err error) {
 
 	v.log(LogDebug, "called (%t)", b)
@@ -115,11 +117,11 @@ func (v *VoiceConnection) Speaking(b bool) (err error) {
 
 // ChangeChannel sends Discord a request to change channels within a Guild
 // !!! NOTE !!! This function may be removed in favour of just using ChannelVoiceJoin
-func (v *VoiceConnection) ChangeChannel(channelID string, mute, deaf bool) (err error) {
+func (v *VoiceConnection) ChangeChannel(channelID string, mute, deaf bool, camera bool) (err error) {
 
 	v.log(LogInformational, "called")
 
-	data := voiceChannelJoinOp{4, voiceChannelJoinData{&v.GuildID, &channelID, mute, deaf}}
+	data := voiceChannelJoinOp{4, voiceChannelJoinData{&v.GuildID, &channelID, mute, deaf, camera}}
 	v.session.wsMutex.Lock()
 	err = v.session.wsConn.WriteJSON(data)
 	v.session.wsMutex.Unlock()
@@ -129,6 +131,7 @@ func (v *VoiceConnection) ChangeChannel(channelID string, mute, deaf bool) (err 
 	v.ChannelID = channelID
 	v.deaf = deaf
 	v.mute = mute
+	v.camera = camera
 	v.speaking = false
 
 	return
@@ -141,7 +144,7 @@ func (v *VoiceConnection) Disconnect() (err error) {
 	// Send a OP4 with a nil channel to disconnect
 	v.Lock()
 	if v.sessionID != "" {
-		data := voiceChannelJoinOp{4, voiceChannelJoinData{&v.GuildID, nil, true, true}}
+		data := voiceChannelJoinOp{4, voiceChannelJoinData{&v.GuildID, nil, true, true, false}}
 		v.session.wsMutex.Lock()
 		err = v.session.wsConn.WriteJSON(data)
 		v.session.wsMutex.Unlock()
@@ -835,7 +838,7 @@ func (v *VoiceConnection) opusReceiver(udpConn *net.UDPConn, close <-chan struct
 		if opus, ok := secretbox.Open(nil, recvbuf[12:rlen], &nonce, &v.op4.SecretKey); ok {
 			p.Opus = opus
 		} else {
-			continue
+			return
 		}
 
 		// extension bit set, and not a RTCP packet
@@ -902,7 +905,7 @@ func (v *VoiceConnection) reconnect() {
 
 		v.log(LogInformational, "trying to reconnect to channel %s", v.ChannelID)
 
-		_, err := v.session.ChannelVoiceJoin(v.GuildID, v.ChannelID, v.mute, v.deaf)
+		_, err := v.session.ChannelVoiceJoin(v.GuildID, v.ChannelID, v.mute, v.deaf, v.camera)
 		if err == nil {
 			v.log(LogInformational, "successfully reconnected to channel %s", v.ChannelID)
 			return
@@ -913,7 +916,7 @@ func (v *VoiceConnection) reconnect() {
 		// if the reconnect above didn't work lets just send a disconnect
 		// packet to reset things.
 		// Send a OP4 with a nil channel to disconnect
-		data := voiceChannelJoinOp{4, voiceChannelJoinData{&v.GuildID, nil, true, true}}
+		data := voiceChannelJoinOp{4, voiceChannelJoinData{&v.GuildID, nil, true, true, false}}
 		v.session.wsMutex.Lock()
 		err = v.session.wsConn.WriteJSON(data)
 		v.session.wsMutex.Unlock()
