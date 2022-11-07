@@ -645,7 +645,7 @@ type voiceChannelJoinData struct {
 	ChannelID  *string `json:"channel_id"`
 	SelfMute   bool    `json:"self_mute"`
 	SelfDeaf   bool    `json:"self_deaf"`
-	SelfCamera bool    `json:"self_camera"`
+	SelfCamera bool    `json:"self_video"`
 }
 
 type voiceChannelJoinOp struct {
