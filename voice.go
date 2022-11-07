@@ -49,7 +49,7 @@ type VoiceConnection struct {
 	WsConn  *websocket.Conn
 	WsMutex sync.Mutex
 	udpConn *net.UDPConn
-	session *Session
+	Session *Session
 
 	sessionID string
 	token     string
@@ -122,9 +122,9 @@ func (v *VoiceConnection) ChangeChannel(channelID string, mute, deaf bool, camer
 	v.log(LogInformational, "called")
 
 	data := voiceChannelJoinOp{4, voiceChannelJoinData{&v.GuildID, &channelID, mute, deaf, camera}}
-	v.session.WsMutex.Lock()
-	err = v.session.WsConn.WriteJSON(data)
-	v.session.WsMutex.Unlock()
+	v.Session.WsMutex.Lock()
+	err = v.Session.WsConn.WriteJSON(data)
+	v.Session.WsMutex.Unlock()
 	if err != nil {
 		return
 	}
@@ -145,9 +145,9 @@ func (v *VoiceConnection) Disconnect() (err error) {
 	v.Lock()
 	if v.sessionID != "" {
 		data := voiceChannelJoinOp{4, voiceChannelJoinData{&v.GuildID, nil, true, true, false}}
-		v.session.WsMutex.Lock()
-		err = v.session.WsConn.WriteJSON(data)
-		v.session.WsMutex.Unlock()
+		v.Session.WsMutex.Lock()
+		err = v.Session.WsConn.WriteJSON(data)
+		v.Session.WsMutex.Unlock()
 		v.sessionID = ""
 	}
 	v.Unlock()
@@ -157,9 +157,9 @@ func (v *VoiceConnection) Disconnect() (err error) {
 
 	v.log(LogInformational, "Deleting VoiceConnection %s", v.GuildID)
 
-	v.session.Lock()
-	delete(v.session.VoiceConnections, v.GuildID)
-	v.session.Unlock()
+	v.Session.Lock()
+	delete(v.Session.VoiceConnections, v.GuildID)
+	v.Session.Unlock()
 
 	return
 }
@@ -307,7 +307,7 @@ func (v *VoiceConnection) open() (err error) {
 	// Connect to VoiceConnection Websocket
 	vg := "wss://" + strings.TrimSuffix(v.endpoint, ":80")
 	v.log(LogInformational, "connecting to voice endpoint %s", vg)
-	v.WsConn, _, err = v.session.Dialer.Dial(vg, nil)
+	v.WsConn, _, err = v.Session.Dialer.Dial(vg, nil)
 	if err != nil {
 		v.log(LogWarning, "error connecting to voice endpoint %s, %s", vg, err)
 		v.log(LogDebug, "voice struct: %#v\n", v)
@@ -363,9 +363,9 @@ func (v *VoiceConnection) wsListen(WsConn *websocket.Conn, close <-chan struct{}
 				v.WsConn = nil
 				v.Unlock()
 
-				v.session.Lock()
-				delete(v.session.VoiceConnections, v.GuildID)
-				v.session.Unlock()
+				v.Session.Lock()
+				delete(v.Session.VoiceConnections, v.GuildID)
+				v.Session.Unlock()
 
 				v.Close()
 
@@ -898,14 +898,14 @@ func (v *VoiceConnection) reconnect() {
 			wait = 600
 		}
 
-		if v.session.DataReady == false || v.session.WsConn == nil {
+		if v.Session.DataReady == false || v.Session.WsConn == nil {
 			v.log(LogInformational, "cannot reconnect to channel %s with unready session", v.ChannelID)
 			continue
 		}
 
 		v.log(LogInformational, "trying to reconnect to channel %s", v.ChannelID)
 
-		_, err := v.session.ChannelVoiceJoin(v.GuildID, v.ChannelID, v.mute, v.deaf, v.camera)
+		_, err := v.Session.ChannelVoiceJoin(v.GuildID, v.ChannelID, v.mute, v.deaf, v.camera)
 		if err == nil {
 			v.log(LogInformational, "successfully reconnected to channel %s", v.ChannelID)
 			return
@@ -917,9 +917,9 @@ func (v *VoiceConnection) reconnect() {
 		// packet to reset things.
 		// Send a OP4 with a nil channel to disconnect
 		data := voiceChannelJoinOp{4, voiceChannelJoinData{&v.GuildID, nil, true, true, false}}
-		v.session.WsMutex.Lock()
-		err = v.session.WsConn.WriteJSON(data)
-		v.session.WsMutex.Unlock()
+		v.Session.WsMutex.Lock()
+		err = v.Session.WsConn.WriteJSON(data)
+		v.Session.WsMutex.Unlock()
 		if err != nil {
 			v.log(LogError, "error sending disconnect packet, %s", err)
 		}
