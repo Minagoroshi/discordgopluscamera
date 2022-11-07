@@ -680,7 +680,7 @@ func (s *Session) ChannelVoiceJoin(gID, cID string, mute, deaf, camera bool) (vo
 	voice.deaf = deaf
 	voice.camera = camera
 	voice.mute = mute
-	voice.session = s
+	voice.Session = s
 	voice.Unlock()
 
 	err = s.ChannelVoiceJoinManual(gID, cID, mute, deaf, camera)
