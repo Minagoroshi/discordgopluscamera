@@ -46,8 +46,8 @@ type VoiceConnection struct {
 	OpusSend chan []byte  // Chan for sending opus audio
 	OpusRecv chan *Packet // Chan for receiving opus audio
 
-	wsConn  *websocket.Conn
-	wsMutex sync.Mutex
+	WsConn  *websocket.Conn
+	WsMutex sync.Mutex
 	udpConn *net.UDPConn
 	session *Session
 
@@ -93,14 +93,14 @@ func (v *VoiceConnection) Speaking(b bool) (err error) {
 		Data voiceSpeakingData `json:"d"`
 	}
 
-	if v.wsConn == nil {
+	if v.WsConn == nil {
 		return fmt.Errorf("no VoiceConnection websocket")
 	}
 
 	data := voiceSpeakingOp{5, voiceSpeakingData{b, 0}}
-	v.wsMutex.Lock()
-	err = v.wsConn.WriteJSON(data)
-	v.wsMutex.Unlock()
+	v.WsMutex.Lock()
+	err = v.WsConn.WriteJSON(data)
+	v.WsMutex.Unlock()
 
 	v.Lock()
 	defer v.Unlock()
@@ -122,9 +122,9 @@ func (v *VoiceConnection) ChangeChannel(channelID string, mute, deaf bool, camer
 	v.log(LogInformational, "called")
 
 	data := voiceChannelJoinOp{4, voiceChannelJoinData{&v.GuildID, &channelID, mute, deaf, camera}}
-	v.session.wsMutex.Lock()
-	err = v.session.wsConn.WriteJSON(data)
-	v.session.wsMutex.Unlock()
+	v.session.WsMutex.Lock()
+	err = v.session.WsConn.WriteJSON(data)
+	v.session.WsMutex.Unlock()
 	if err != nil {
 		return
 	}
@@ -145,9 +145,9 @@ func (v *VoiceConnection) Disconnect() (err error) {
 	v.Lock()
 	if v.sessionID != "" {
 		data := voiceChannelJoinOp{4, voiceChannelJoinData{&v.GuildID, nil, true, true, false}}
-		v.session.wsMutex.Lock()
-		err = v.session.wsConn.WriteJSON(data)
-		v.session.wsMutex.Unlock()
+		v.session.WsMutex.Lock()
+		err = v.session.WsConn.WriteJSON(data)
+		v.session.WsMutex.Unlock()
 		v.sessionID = ""
 	}
 	v.Unlock()
@@ -190,14 +190,14 @@ func (v *VoiceConnection) Close() {
 		v.udpConn = nil
 	}
 
-	if v.wsConn != nil {
+	if v.WsConn != nil {
 		v.log(LogInformational, "sending close frame")
 
 		// To cleanly close a connection, a client should send a close
 		// frame and wait for the server to close the connection.
-		v.wsMutex.Lock()
-		err := v.wsConn.WriteMessage(websocket.CloseMessage, websocket.FormatCloseMessage(websocket.CloseNormalClosure, ""))
-		v.wsMutex.Unlock()
+		v.WsMutex.Lock()
+		err := v.WsConn.WriteMessage(websocket.CloseMessage, websocket.FormatCloseMessage(websocket.CloseNormalClosure, ""))
+		v.WsMutex.Unlock()
 		if err != nil {
 			v.log(LogError, "error closing websocket, %s", err)
 		}
@@ -206,12 +206,12 @@ func (v *VoiceConnection) Close() {
 		time.Sleep(1 * time.Second)
 
 		v.log(LogInformational, "closing websocket")
-		err = v.wsConn.Close()
+		err = v.WsConn.Close()
 		if err != nil {
 			v.log(LogError, "error closing websocket, %s", err)
 		}
 
-		v.wsConn = nil
+		v.WsConn = nil
 	}
 }
 
@@ -286,7 +286,7 @@ func (v *VoiceConnection) open() (err error) {
 	defer v.Unlock()
 
 	// Don't open a websocket if one is already open
-	if v.wsConn != nil {
+	if v.WsConn != nil {
 		v.log(LogWarning, "refusing to overwrite non-nil websocket")
 		return
 	}
@@ -307,7 +307,7 @@ func (v *VoiceConnection) open() (err error) {
 	// Connect to VoiceConnection Websocket
 	vg := "wss://" + strings.TrimSuffix(v.endpoint, ":80")
 	v.log(LogInformational, "connecting to voice endpoint %s", vg)
-	v.wsConn, _, err = v.session.Dialer.Dial(vg, nil)
+	v.WsConn, _, err = v.session.Dialer.Dial(vg, nil)
 	if err != nil {
 		v.log(LogWarning, "error connecting to voice endpoint %s, %s", vg, err)
 		v.log(LogDebug, "voice struct: %#v\n", v)
@@ -326,16 +326,16 @@ func (v *VoiceConnection) open() (err error) {
 	}
 	data := voiceHandshakeOp{0, voiceHandshakeData{v.GuildID, v.UserID, v.sessionID, v.token}}
 
-	v.wsMutex.Lock()
-	err = v.wsConn.WriteJSON(data)
-	v.wsMutex.Unlock()
+	v.WsMutex.Lock()
+	err = v.WsConn.WriteJSON(data)
+	v.WsMutex.Unlock()
 	if err != nil {
 		v.log(LogWarning, "error sending init packet, %s", err)
 		return
 	}
 
 	v.close = make(chan struct{})
-	go v.wsListen(v.wsConn, v.close)
+	go v.wsListen(v.WsConn, v.close)
 
 	// add loop/check for Ready bool here?
 	// then return false if not ready?
@@ -346,12 +346,12 @@ func (v *VoiceConnection) open() (err error) {
 
 // wsListen listens on the voice websocket for messages and passes them
 // to the voice event handler.  This is automatically called by the Open func
-func (v *VoiceConnection) wsListen(wsConn *websocket.Conn, close <-chan struct{}) {
+func (v *VoiceConnection) wsListen(WsConn *websocket.Conn, close <-chan struct{}) {
 
 	v.log(LogInformational, "called")
 
 	for {
-		_, message, err := v.wsConn.ReadMessage()
+		_, message, err := v.WsConn.ReadMessage()
 		if err != nil {
 			// 4014 indicates a manual disconnection by someone in the guild;
 			// we shouldn't reconnect.
@@ -360,7 +360,7 @@ func (v *VoiceConnection) wsListen(wsConn *websocket.Conn, close <-chan struct{}
 
 				// Abandon the voice WS connection
 				v.Lock()
-				v.wsConn = nil
+				v.WsConn = nil
 				v.Unlock()
 
 				v.session.Lock()
@@ -376,7 +376,7 @@ func (v *VoiceConnection) wsListen(wsConn *websocket.Conn, close <-chan struct{}
 			// happened, the websocket we are listening on will be different to the
 			// current session.
 			v.RLock()
-			sameConnection := v.wsConn == wsConn
+			sameConnection := v.WsConn == WsConn
 			v.RUnlock()
 			if sameConnection {
 
@@ -420,7 +420,7 @@ func (v *VoiceConnection) onEvent(message []byte) {
 		}
 
 		// Start the voice websocket heartbeat to keep the connection alive
-		go v.wsHeartbeat(v.wsConn, v.close, v.op2.HeartbeatInterval)
+		go v.wsHeartbeat(v.WsConn, v.close, v.op2.HeartbeatInterval)
 		// TODO monitor a chan/bool to verify this was successful
 
 		// Start the UDP connection
@@ -496,9 +496,9 @@ type voiceHeartbeatOp struct {
 // wsHeartbeat sends regular heartbeats to voice Discord so it knows the client
 // is still connected.  If you do not send these heartbeats Discord will
 // disconnect the websocket connection after a few seconds.
-func (v *VoiceConnection) wsHeartbeat(wsConn *websocket.Conn, close <-chan struct{}, i time.Duration) {
+func (v *VoiceConnection) wsHeartbeat(WsConn *websocket.Conn, close <-chan struct{}, i time.Duration) {
 
-	if close == nil || wsConn == nil {
+	if close == nil || WsConn == nil {
 		return
 	}
 
@@ -507,9 +507,9 @@ func (v *VoiceConnection) wsHeartbeat(wsConn *websocket.Conn, close <-chan struc
 	defer ticker.Stop()
 	for {
 		v.log(LogDebug, "sending heartbeat packet")
-		v.wsMutex.Lock()
-		err = wsConn.WriteJSON(voiceHeartbeatOp{3, int(time.Now().Unix())})
-		v.wsMutex.Unlock()
+		v.WsMutex.Lock()
+		err = WsConn.WriteJSON(voiceHeartbeatOp{3, int(time.Now().Unix())})
+		v.WsMutex.Unlock()
 		if err != nil {
 			v.log(LogError, "error sending heartbeat to voice endpoint %s, %s", v.endpoint, err)
 			return
@@ -553,7 +553,7 @@ func (v *VoiceConnection) udpOpen() (err error) {
 	v.Lock()
 	defer v.Unlock()
 
-	if v.wsConn == nil {
+	if v.WsConn == nil {
 		return fmt.Errorf("nil voice websocket")
 	}
 
@@ -626,9 +626,9 @@ func (v *VoiceConnection) udpOpen() (err error) {
 	// the UDP connection handshake.
 	data := voiceUDPOp{1, voiceUDPD{"udp", voiceUDPData{ip, port, "xsalsa20_poly1305"}}}
 
-	v.wsMutex.Lock()
-	err = v.wsConn.WriteJSON(data)
-	v.wsMutex.Unlock()
+	v.WsMutex.Lock()
+	err = v.WsConn.WriteJSON(data)
+	v.WsMutex.Unlock()
 	if err != nil {
 		v.log(LogWarning, "udp write error, %#v, %s", data, err)
 		return
@@ -898,7 +898,7 @@ func (v *VoiceConnection) reconnect() {
 			wait = 600
 		}
 
-		if v.session.DataReady == false || v.session.wsConn == nil {
+		if v.session.DataReady == false || v.session.WsConn == nil {
 			v.log(LogInformational, "cannot reconnect to channel %s with unready session", v.ChannelID)
 			continue
 		}
@@ -917,9 +917,9 @@ func (v *VoiceConnection) reconnect() {
 		// packet to reset things.
 		// Send a OP4 with a nil channel to disconnect
 		data := voiceChannelJoinOp{4, voiceChannelJoinData{&v.GuildID, nil, true, true, false}}
-		v.session.wsMutex.Lock()
-		err = v.session.wsConn.WriteJSON(data)
-		v.session.wsMutex.Unlock()
+		v.session.WsMutex.Lock()
+		err = v.session.WsConn.WriteJSON(data)
+		v.session.WsMutex.Unlock()
 		if err != nil {
 			v.log(LogError, "error sending disconnect packet, %s", err)
 		}
